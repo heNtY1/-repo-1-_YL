@@ -1,71 +1,97 @@
-from flask import *
-from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField
-from wtforms.validators import DataRequired
+import sys, requests
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'yandexlyceum_secret_key'
-
-
-@app.route('/<title>')
-@app.route('/index/<title>')
-def index(title):
-    params = {}
-    params["title"] = title
-    return render_template('base.html', **params)
+from PyQt6 import uic  # Импортируем uic
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QMainWindow
+from io import BytesIO
+from PIL import Image
 
 
-@app.route('/training/<prof>')
-def plan(prof):
-    params = {}
-    if "строитель" in prof.lower() or "инженер" in prof.lower():
-        prof = "инженер"
-    else:
-        prof = "научный"
-    params["prof"] = prof
-    return render_template('content.html', **params)
+class MapSearcher(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        uic.loadUi('web.ui', self)
+        self.searchButton.clicked.connect(self.run)
+        self.checkBox.stateChanged.connect(self.getImage)
+        self.delta_spn = 0.4
+        self.delta_ll = 0.2
 
+    def run(self):
+        self.getImage()
 
-@app.route('/list_prof/<type_list>')
-def get_prof_list(type_list):
-    prof_list = [1, 2, 3, 4, 5]
-    return render_template("list.html", type_list=type_list, list=prof_list)
+    def getImage(self):
+        api_server = "https://static-maps.yandex.ru/v1"
+        lon = self.lon.text()
+        lat = self.lat.text()
+        delta1 = str(float(self.spn.text()))
+        delta2 = str(float(self.spn.text()))
+        apikey = "5815d7d2-6bbe-424d-a32d-028b8c596fa2"
 
-
-class LoginForm(FlaskForm):
-    name = StringField('Имя', validators=[DataRequired()])
-    surname = StringField('Фамилия', validators=[DataRequired()])
-    education = StringField('Образование', validators=[DataRequired()])
-    profession = StringField('Профессия', validators=[DataRequired()])
-    sex = StringField('Пол', validators=[DataRequired()])
-    motivation = StringField("Мотивация", validators=[DataRequired()])
-    ready = BooleanField('Готовы остаться на марсе?')
-    submit = SubmitField('Записаться')
-
-
-@app.route('/answer', methods=['GET', 'POST'])
-@app.route('/auto_answer', methods=['GET', 'POST'])
-def answer():
-    form = LoginForm()
-    if form.validate_on_submit():
-        res = {
-            "Фамилия": form.data["surname"],
-            "Имя": form.data["name"],
-            "Образование": form.data["education"],
-            "Профессия": form.data["profession"],
-            "Пол": form.data["sex"],
-            "Мотивация": form.data["motivation"],
-            "Готовы остаться на марсе?": form.data["ready"],
+        params = {
+            "ll": ",".join([lon, lat]),
+            "spn": ",".join([delta1, delta2]),
+            "theme": "dark" if self.checkBox.isChecked() else "light",
+            "apikey": apikey
         }
-        # return "<br>".join([f"{i} : {j}" for i, j in res.items()])
-        return render_template('otvet.html', data=res)
-    return render_template('auto_answer.html', title='Авторизация', form=form)
+        response = requests.get(api_server, params=params)
+        if not response:
+            print("Ошибка выполнения запроса:")
+            print("Http статус:", response.status_code, "(", response.reason, ")")
 
+        self.map_file = "map.png"
+        with open(self.map_file, "wb") as file:
+            file.write(response.content)
 
-@app.route('/success/<data>')
-def otvet(data):
-    return ""
+        self.pixmap = QPixmap(self.map_file)
+        self.map_label.setPixmap(self.pixmap)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_PageUp:
+            val = float(self.spn.text())
+            res = val + self.delta_spn
+            res = min(70, round(res, 2))
+            self.spn.setText(str(res))
+            self.getImage()
+
+        if event.key() == Qt.Key.Key_PageDown:
+            val = float(self.spn.text())
+            res = val - self.delta_spn
+            res = max(0.01, round(res, 2))
+            self.spn.setText(str(res))
+            self.getImage()
+
+        if event.key() == Qt.Key.Key_Down:
+            val_lat = float(self.lat.text())
+            val_lat -= self.delta_ll * float(self.spn.text())
+            val_lat = round(val_lat, 5)
+            self.lat.setText(str(val_lat))
+            self.getImage()
+
+        if event.key() == Qt.Key.Key_Up:
+            val_lat = float(self.lat.text())
+            val_lat += self.delta_ll * float(self.spn.text())
+            val_lat = round(val_lat, 5)
+            self.lat.setText(str(val_lat))
+            self.getImage()
+
+        if event.key() == Qt.Key.Key_Left:
+            val_lon = float(self.lon.text())
+            val_lon -= self.delta_ll * float(self.spn.text())
+            val_lon = round(val_lon, 5)
+            self.lon.setText(str(val_lon))
+            self.getImage()
+
+        if event.key() == Qt.Key.Key_Right:
+            val_lon = float(self.lon.text())
+            val_lon += self.delta_ll * float(self.spn.text())
+            val_lon = round(val_lon, 5)
+            self.lon.setText(str(val_lon))
+            self.getImage()
 
 
 if __name__ == '__main__':
-    app.run(port=8080, host='127.0.0.1')
+    app = QApplication(sys.argv)
+    ex = MapSearcher()
+    ex.show()
+    sys.exit(app.exec())
